@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "717575885958",
+    "project_id": "ilha-europinha",
+    "storage_bucket": "ilha-europinha.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:717575885958:android:3f8146622de6227dc9ed07",
+        "android_client_info": {
+          "package_name": "com.example.ilha_europinha"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCNtRYvCkrV6lwZf-5JVe7CKVef6WVcnM4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

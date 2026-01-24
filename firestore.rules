@@ -1,0 +1,85 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Função auxiliar para obter perfil do usuário
+    function getUserProfile() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.perfil;
+    }
+    
+    function isAdmin() {
+      return getUserProfile() == 'admin';
+    }
+    
+    function isPresidencia() {
+      return getUserProfile() == 'presidencia';
+    }
+    
+    function isTesouraria() {
+      return getUserProfile() == 'tesouraria';
+    }
+    
+    function isDiretoria() {
+      return getUserProfile() == 'diretoria';
+    }
+    
+    function canManageUsers() {
+      return isAdmin() || isPresidencia();
+    }
+    
+    function canManageFinances() {
+      return isAdmin() || isTesouraria();
+    }
+    
+    function canViewReports() {
+      return isAdmin() || isPresidencia() || isDiretoria() || isTesouraria();
+    }
+    
+    // Regras para usuários
+    match /users/{userId} {
+      allow read: if request.auth != null;
+      allow create: if canManageUsers();
+      allow update: if canManageUsers();
+      allow delete: if isAdmin();
+    }
+    
+    // Regras para casas
+    match /houses/{houseId} {
+      allow read: if request.auth != null;
+      allow write: if canManageUsers();
+    }
+    
+    // Regras para moradores
+    match /residents/{residentId} {
+      allow read: if request.auth != null;
+      allow write: if canManageUsers();
+    }
+    
+    // Regras para valores fixos
+    match /fixed_values/{valueId} {
+      allow read: if request.auth != null;
+      allow write: if canManageFinances();
+    }
+    
+    // Regras para pagamentos fixos
+    match /fixed_payments/{paymentId} {
+      allow read: if request.auth != null;
+      allow create, update: if canManageFinances();
+      allow delete: if isAdmin();
+    }
+    
+    // Regras para entradas
+    match /entries/{entryId} {
+      allow read: if canViewReports();
+      allow create, update: if canManageFinances();
+      allow delete: if isAdmin();
+    }
+    
+    // Regras para despesas
+    match /expenses/{expenseId} {
+      allow read: if canViewReports();
+      allow create, update: if canManageFinances();
+      allow delete: if isAdmin();
+    }
+  }
+}
