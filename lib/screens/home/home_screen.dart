@@ -10,9 +10,25 @@ import '../financial/monthly_charges_screen.dart';
 import '../entries/entries_list_screen.dart';
 import '../expenses/expenses_list_screen.dart';
 import '../reports/reports_screen.dart';
+import '../map/mapa_screen.dart';
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // Recarrega os dados do usuário quando a tela é carregada
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final authProvider = context.read<AuthProvider>();
+      authProvider.reloadUserData();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -116,28 +132,30 @@ class HomeScreen extends StatelessWidget {
                             ),
                           ),
                         ),
-                      _MenuCard(
-                        icon: Icons.home,
-                        title: 'Casas',
-                        subtitle: 'Gerenciar casas',
-                        onTap: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => const HousesListScreen(),
+                      if (user.canManageHouses)
+                        _MenuCard(
+                          icon: Icons.home,
+                          title: 'Casas',
+                          subtitle: 'Gerenciar casas',
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const HousesListScreen(),
+                            ),
                           ),
                         ),
-                      ),
-                      _MenuCard(
-                        icon: Icons.group,
-                        title: 'Moradores',
-                        subtitle: 'Gerenciar moradores',
-                        onTap: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => const ResidentsListScreen(),
+                      if (user.canManageHouses)
+                        _MenuCard(
+                          icon: Icons.group,
+                          title: 'Moradores',
+                          subtitle: 'Gerenciar moradores',
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const ResidentsListScreen(),
+                            ),
                           ),
                         ),
-                      ),
                       if (user.canManageFinances)
                         _MenuCard(
                           icon: Icons.payment,
@@ -200,18 +218,24 @@ class HomeScreen extends StatelessWidget {
                             ),
                           ),
                         ),
-                      _MenuCard(
-                        icon: Icons.security,
-                        title: 'Controle de Acesso',
-                        subtitle: 'Permissões por perfil',
-                        onTap: () =>
-                            Navigator.pushNamed(context, '/access-control'),
-                      ),
+                      if (user.perfil == UserProfile.admin)
+                        _MenuCard(
+                          icon: Icons.security,
+                          title: 'Controle de Acesso',
+                          subtitle: 'Permissões por perfil',
+                          onTap: () =>
+                              Navigator.pushNamed(context, '/access-control'),
+                        ),
                       _MenuCard(
                         icon: Icons.map,
                         title: 'Mapa',
                         subtitle: 'Mapa da ilha',
-                        onTap: () => _showComingSoon(context),
+                        onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const MapaScreen(),
+                          ),
+                        ),
                       ),
                     ],
                   ),
@@ -234,15 +258,6 @@ class HomeScreen extends StatelessWidget {
       case UserProfile.usuario:
         return 'Usuário';
     }
-  }
-
-  void _showComingSoon(BuildContext context) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Funcionalidade em desenvolvimento'),
-        duration: Duration(seconds: 2),
-      ),
-    );
   }
 
   Future<void> _handleLogout(BuildContext context) async {

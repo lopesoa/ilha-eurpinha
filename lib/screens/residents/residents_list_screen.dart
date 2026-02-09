@@ -1,15 +1,21 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import '../../models/resident_model.dart';
-import '../../models/house_model.dart';
 import '../../services/resident_service.dart';
-import '../../services/house_service.dart';
 import '../../widgets/common/empty_state.dart';
 import '../../widgets/common/error_display.dart';
 import 'resident_form_screen.dart';
 
-class ResidentsListScreen extends StatelessWidget {
+enum AgeFilter { todos, adultos, criancas }
+
+class ResidentsListScreen extends StatefulWidget {
   const ResidentsListScreen({super.key});
+
+  @override
+  State<ResidentsListScreen> createState() => _ResidentsListScreenState();
+}
+
+class _ResidentsListScreenState extends State<ResidentsListScreen> {
+  AgeFilter _ageFilter = AgeFilter.todos;
 
   @override
   Widget build(BuildContext context) {
@@ -19,6 +25,81 @@ class ResidentsListScreen extends StatelessWidget {
       appBar: AppBar(
         title: const Text('Moradores'),
         actions: [
+          PopupMenuButton<AgeFilter>(
+            icon: const Icon(Icons.filter_list),
+            tooltip: 'Filtrar por idade',
+            onSelected: (filter) {
+              setState(() => _ageFilter = filter);
+            },
+            itemBuilder: (context) => [
+              PopupMenuItem(
+                value: AgeFilter.todos,
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.people,
+                      color: _ageFilter == AgeFilter.todos
+                          ? Theme.of(context).colorScheme.primary
+                          : null,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Todos',
+                      style: TextStyle(
+                        fontWeight: _ageFilter == AgeFilter.todos
+                            ? FontWeight.bold
+                            : null,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: AgeFilter.adultos,
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.person,
+                      color: _ageFilter == AgeFilter.adultos
+                          ? Theme.of(context).colorScheme.primary
+                          : null,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Adultos (≥12 anos)',
+                      style: TextStyle(
+                        fontWeight: _ageFilter == AgeFilter.adultos
+                            ? FontWeight.bold
+                            : null,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: AgeFilter.criancas,
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.child_care,
+                      color: _ageFilter == AgeFilter.criancas
+                          ? Theme.of(context).colorScheme.primary
+                          : null,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Crianças (<12 anos)',
+                      style: TextStyle(
+                        fontWeight: _ageFilter == AgeFilter.criancas
+                            ? FontWeight.bold
+                            : null,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
           IconButton(
             icon: const Icon(Icons.add),
             onPressed: () => _navigateToForm(context),
@@ -37,12 +118,25 @@ class ResidentsListScreen extends StatelessWidget {
             return const Center(child: CircularProgressIndicator());
           }
 
-          final residents = snapshot.data!;
+          var residents = snapshot.data!;
+
+          // Aplicar filtro de idade
+          if (_ageFilter == AgeFilter.adultos) {
+            residents = residents.where((r) => !r.isCrianca).toList();
+          } else if (_ageFilter == AgeFilter.criancas) {
+            residents = residents.where((r) => r.isCrianca).toList();
+          }
 
           if (residents.isEmpty) {
+            String message = _ageFilter == AgeFilter.todos
+                ? 'Nenhum morador cadastrado'
+                : _ageFilter == AgeFilter.adultos
+                ? 'Nenhum adulto encontrado'
+                : 'Nenhuma criança encontrada';
+
             return EmptyState(
               icon: Icons.people_outline,
-              message: 'Nenhum morador cadastrado',
+              message: message,
               actionLabel: 'Adicionar morador',
               onAction: () => _navigateToForm(context),
             );

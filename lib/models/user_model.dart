@@ -70,15 +70,25 @@ class UserModel {
 
   // Gestão Financeira
   bool get canManageFinances =>
-      perfil == UserProfile.admin || perfil == UserProfile.tesouraria;
+      perfil == UserProfile.admin ||
+      perfil == UserProfile.presidencia ||
+      perfil == UserProfile.tesouraria;
   bool get canManageFixedValues =>
-      perfil == UserProfile.admin || perfil == UserProfile.tesouraria;
+      perfil == UserProfile.admin ||
+      perfil == UserProfile.presidencia ||
+      perfil == UserProfile.tesouraria;
   bool get canManageCharges =>
-      perfil == UserProfile.admin || perfil == UserProfile.tesouraria;
+      perfil == UserProfile.admin ||
+      perfil == UserProfile.presidencia ||
+      perfil == UserProfile.tesouraria;
   bool get canManageEntries =>
-      perfil == UserProfile.admin || perfil == UserProfile.tesouraria;
+      perfil == UserProfile.admin ||
+      perfil == UserProfile.presidencia ||
+      perfil == UserProfile.tesouraria;
   bool get canManageExpenses =>
-      perfil == UserProfile.admin || perfil == UserProfile.tesouraria;
+      perfil == UserProfile.admin ||
+      perfil == UserProfile.presidencia ||
+      perfil == UserProfile.tesouraria;
   bool get canDeleteRecords => perfil == UserProfile.admin;
 
   // Relatórios

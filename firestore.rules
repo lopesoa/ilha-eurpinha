@@ -4,23 +4,25 @@ service cloud.firestore {
     
     // Função auxiliar para obter perfil do usuário
     function getUserProfile() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.perfil;
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid)) 
+        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data.perfil 
+        : null;
     }
     
     function isAdmin() {
-      return getUserProfile() == 'admin';
+      return request.auth != null && getUserProfile() == 'admin';
     }
     
     function isPresidencia() {
-      return getUserProfile() == 'presidencia';
+      return request.auth != null && getUserProfile() == 'presidencia';
     }
     
     function isTesouraria() {
-      return getUserProfile() == 'tesouraria';
+      return request.auth != null && getUserProfile() == 'tesouraria';
     }
     
     function isDiretoria() {
-      return getUserProfile() == 'diretoria';
+      return request.auth != null && getUserProfile() == 'diretoria';
     }
     
     function canManageUsers() {
@@ -28,7 +30,7 @@ service cloud.firestore {
     }
     
     function canManageFinances() {
-      return isAdmin() || isTesouraria();
+      return isAdmin() || isPresidencia() || isTesouraria();
     }
     
     function canViewReports() {
@@ -38,8 +40,8 @@ service cloud.firestore {
     // Regras para usuários
     match /users/{userId} {
       allow read: if request.auth != null;
-      allow create: if canManageUsers();
-      allow update: if canManageUsers();
+      allow create: if request.auth != null && (canManageUsers() || !exists(/databases/$(database)/documents/users/$(request.auth.uid)));
+      allow update: if canManageUsers() || request.auth.uid == userId;
       allow delete: if isAdmin();
     }
     
@@ -47,6 +49,12 @@ service cloud.firestore {
     match /houses/{houseId} {
       allow read: if request.auth != null;
       allow write: if canManageUsers();
+    }
+    
+    // Regras para posições das casas no mapa
+    match /house_map_positions/{positionId} {
+      allow read: if request.auth != null;
+      allow write: if canManageUsers() || isDiretoria();
     }
     
     // Regras para moradores

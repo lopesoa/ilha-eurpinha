@@ -6,6 +6,7 @@ class HouseModel {
   final String id;
   final String identificador;
   final HouseStatus status;
+  final bool associado; // Se a casa é associada ou não
   final bool isentaAgua;
   final bool isentaAssociacao;
   final DateTime dataInicioCobranca;
@@ -17,6 +18,7 @@ class HouseModel {
     required this.id,
     required this.identificador,
     required this.status,
+    this.associado = true, // Por padrão é associado
     required this.isentaAgua,
     required this.isentaAssociacao,
     required this.dataInicioCobranca,
@@ -27,6 +29,7 @@ class HouseModel {
 
   factory HouseModel.fromFirestore(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>;
+    final associado = data['associado'] ?? true;
     return HouseModel(
       id: doc.id,
       identificador: data['identificador'] ?? '',
@@ -34,8 +37,12 @@ class HouseModel {
         (e) => e.name == data['status'],
         orElse: () => HouseStatus.ativa,
       ),
+      associado: associado,
       isentaAgua: data['isentaAgua'] ?? false,
-      isentaAssociacao: data['isentaAssociacao'] ?? data['isentaLuz'] ?? false,
+      // Se não é associado, automaticamente isento de associação
+      isentaAssociacao: !associado
+          ? true
+          : (data['isentaAssociacao'] ?? data['isentaLuz'] ?? false),
       dataInicioCobranca: (data['dataInicioCobranca'] as Timestamp).toDate(),
       createdAt: (data['createdAt'] as Timestamp).toDate(),
       mapX: data['mapX']?.toDouble(),
@@ -56,6 +63,7 @@ class HouseModel {
     return {
       'identificador': identificador,
       'status': status.name,
+      'associado': associado,
       'isentaAgua': isentaAgua,
       'isentaAssociacao': isentaAssociacao,
       'dataInicioCobranca': Timestamp.fromDate(dataInicioCobranca),

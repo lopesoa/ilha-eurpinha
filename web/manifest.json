@@ -1,13 +1,14 @@
 {
-    "name": "ilha_europinha",
-    "short_name": "ilha_europinha",
+    "name": "Ilha Europinha",
+    "short_name": "Ilha Europinha",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "description": "Sistema de Gestão Ilha Europinha",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
+    "version": "1.1.0",
     "icons": [
         {
             "src": "icons/Icon-192.png",

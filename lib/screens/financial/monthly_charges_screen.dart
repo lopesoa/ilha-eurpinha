@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import '../../models/house_model.dart';
+import '../../models/user_model.dart';
 import '../../models/fixed_value_model.dart';
 import '../../models/fixed_payment_model.dart';
 import '../../services/house_service.dart';
@@ -20,7 +21,16 @@ class MonthlyChargesScreen extends StatefulWidget {
 class _MonthlyChargesScreenState extends State<MonthlyChargesScreen> {
   int _selectedMonth = DateTime.now().month;
   int _selectedYear = DateTime.now().year;
-  bool _isLoading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Recarrega os dados do usuário para garantir permissões atualizadas
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final authProvider = context.read<AuthProvider>();
+      authProvider.reloadUserData();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -41,6 +51,23 @@ class _MonthlyChargesScreenState extends State<MonthlyChargesScreen> {
       body: Column(
         children: [
           _buildHeader(),
+          // Nota explicativa
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            color: Colors.blue.shade50,
+            child: Row(
+              children: [
+                Icon(Icons.info_outline, size: 16, color: Colors.blue.shade700),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'O marcador de "pago" é apenas para controle. Registre os pagamentos reais na seção de Entradas.',
+                    style: TextStyle(fontSize: 12, color: Colors.blue.shade700),
+                  ),
+                ),
+              ],
+            ),
+          ),
           const Divider(height: 1),
           Expanded(
             child: StreamBuilder<List<HouseModel>>(
@@ -122,65 +149,69 @@ class _MonthlyChargesScreenState extends State<MonthlyChargesScreen> {
                           );
                         }
 
+                        // Calcula dados para todas as casas válidas
+                        final housesWithValues = validHouses.map((house) {
+                          final payment = paymentsMap[house.id];
+
+                          // Busca valores válidos para este mês
+                          FixedValueModel? aguaValue;
+                          FixedValueModel? assocValue;
+
+                          for (var v in allValues) {
+                            final tipoLower = v.tipo.toLowerCase();
+                            final isAgua =
+                                tipoLower.contains('água') ||
+                                tipoLower.contains('agua');
+                            final isAssoc =
+                                tipoLower.contains('associação') ||
+                                tipoLower.contains('associacao');
+
+                            final inicioValido = !mesReferencia.isBefore(
+                              DateTime(v.dataInicio.year, v.dataInicio.month),
+                            );
+                            final fimValido =
+                                v.dataFim == null ||
+                                !mesReferencia.isAfter(
+                                  DateTime(v.dataFim!.year, v.dataFim!.month),
+                                );
+
+                            if (inicioValido && fimValido) {
+                              if (isAgua && !house.isentaAgua) aguaValue = v;
+                              if (isAssoc && !house.isentaAssociacao)
+                                assocValue = v;
+                            }
+                          }
+
+                          final valorTotal =
+                              (aguaValue?.valorPorCasa ?? 0.0) +
+                              (assocValue?.valorPorCasa ?? 0.0);
+
+                          return {
+                            'house': house,
+                            'payment': payment,
+                            'valorAgua': aguaValue?.valorPorCasa,
+                            'valorAssociacao': assocValue?.valorPorCasa,
+                            'valorTotal': valorTotal,
+                            'isPaid': payment?.pago ?? false,
+                          };
+                        }).toList();
+
                         return Column(
                           children: [
                             Expanded(
                               child: ListView.builder(
                                 padding: const EdgeInsets.all(16),
-                                itemCount: validHouses.length,
+                                itemCount: housesWithValues.length,
                                 itemBuilder: (context, index) {
-                                  final house = validHouses[index];
-                                  final payment = paymentsMap[house.id];
-
-                                  // Busca valores válidos para este mês (água ou associação)
-                                  FixedValueModel? aguaValue;
-                                  FixedValueModel? assocValue;
-
-                                  for (var v in allValues) {
-                                    final tipoLower = v.tipo.toLowerCase();
-                                    final isAgua =
-                                        tipoLower.contains('água') ||
-                                        tipoLower.contains('agua');
-                                    final isAssoc =
-                                        tipoLower.contains('associação') ||
-                                        tipoLower.contains('associacao');
-
-                                    // Verifica se o valor está vigente no mês de referência
-                                    final inicioValido = !mesReferencia
-                                        .isBefore(
-                                          DateTime(
-                                            v.dataInicio.year,
-                                            v.dataInicio.month,
-                                          ),
-                                        );
-                                    final fimValido =
-                                        v.dataFim == null ||
-                                        !mesReferencia.isAfter(
-                                          DateTime(
-                                            v.dataFim!.year,
-                                            v.dataFim!.month,
-                                          ),
-                                        );
-
-                                    if (inicioValido && fimValido) {
-                                      if (isAgua && !house.isentaAgua)
-                                        aguaValue = v;
-                                      if (isAssoc && !house.isentaAssociacao)
-                                        assocValue = v;
-                                    }
-                                  }
-
-                                  // Calcula valor total (soma água + associação se aplicável)
-                                  final valorTotal =
-                                      (aguaValue?.valorPorCasa ?? 0.0) +
-                                      (assocValue?.valorPorCasa ?? 0.0);
-
+                                  final data = housesWithValues[index];
                                   return _PaymentCard(
-                                    house: house,
-                                    payment: payment,
-                                    valorAgua: aguaValue?.valorPorCasa,
-                                    valorAssociacao: assocValue?.valorPorCasa,
-                                    valorTotal: valorTotal,
+                                    house: data['house'] as HouseModel,
+                                    payment:
+                                        data['payment'] as FixedPaymentModel?,
+                                    valorAgua: data['valorAgua'] as double?,
+                                    valorAssociacao:
+                                        data['valorAssociacao'] as double?,
+                                    valorTotal: data['valorTotal'] as double,
                                     month: _selectedMonth,
                                     year: _selectedYear,
                                     canManage: canManage,
@@ -189,7 +220,7 @@ class _MonthlyChargesScreenState extends State<MonthlyChargesScreen> {
                                 },
                               ),
                             ),
-                            _buildSummary(payments),
+                            _buildSummary(housesWithValues),
                           ],
                         );
                       },
@@ -243,15 +274,21 @@ class _MonthlyChargesScreenState extends State<MonthlyChargesScreen> {
     );
   }
 
-  Widget _buildSummary(List<FixedPaymentModel> payments) {
-    final totalPago = payments
-        .where((p) => p.pago)
-        .fold(0.0, (sum, p) => sum + p.valor);
-    final totalPendente = payments
-        .where((p) => !p.pago)
-        .fold(0.0, (sum, p) => sum + p.valor);
-    final qtdPagas = payments.where((p) => p.pago).length;
-    final qtdPendentes = payments.where((p) => !p.pago).length;
+  Widget _buildSummary(List<Map<String, dynamic>> housesWithValues) {
+    // Calcula baseado em todas as casas que deveriam pagar
+    final totalPago = housesWithValues
+        .where((h) => h['isPaid'] == true)
+        .fold(0.0, (sum, h) => sum + (h['valorTotal'] as double));
+
+    final totalPendente = housesWithValues
+        .where((h) => h['isPaid'] == false)
+        .fold(0.0, (sum, h) => sum + (h['valorTotal'] as double));
+
+    final qtdPagas = housesWithValues.where((h) => h['isPaid'] == true).length;
+
+    final qtdPendentes = housesWithValues
+        .where((h) => h['isPaid'] == false)
+        .length;
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -271,7 +308,7 @@ class _MonthlyChargesScreenState extends State<MonthlyChargesScreen> {
             children: [
               Expanded(
                 child: _SummaryCard(
-                  title: 'Recebido',
+                  title: 'Marcados',
                   value: totalPago,
                   count: qtdPagas,
                   color: Colors.green,
@@ -316,7 +353,6 @@ class _MonthlyChargesScreenState extends State<MonthlyChargesScreen> {
   }
 
   Future<void> _selectMonthYear() async {
-    final now = DateTime.now();
     final selected = await showDatePicker(
       context: context,
       initialDate: DateTime(_selectedYear, _selectedMonth),
@@ -438,6 +474,50 @@ class _PaymentCardState extends State<_PaymentCard> {
 
   Future<void> _handleTogglePaid(bool isPaid) async {
     if (!widget.canManage || _isProcessing) return;
+
+    // Verificar período fechado ao DESMARCAR pagamento
+    if (!isPaid) {
+      final now = DateTime.now();
+      final mesReferencia = DateTime(widget.year, widget.month);
+      final mesAtual = DateTime(now.year, now.month);
+      final isPeriodoFechado = mesReferencia.isBefore(mesAtual);
+
+      if (isPeriodoFechado) {
+        // Verificar se é admin ou presidência
+        final authProvider = Provider.of<AuthProvider>(context, listen: false);
+        final perfil = authProvider.currentUser?.perfil;
+        final canEditClosedPeriod =
+            perfil == UserProfile.admin || perfil == UserProfile.presidencia;
+
+        if (!canEditClosedPeriod) {
+          // Não tem permissão e tentou desmarcar período fechado
+          if (mounted) {
+            showDialog(
+              context: context,
+              builder: (context) => AlertDialog(
+                title: const Row(
+                  children: [
+                    Icon(Icons.lock, color: Colors.orange),
+                    SizedBox(width: 8),
+                    Text('Período Fechado'),
+                  ],
+                ),
+                content: const Text(
+                  'Não é possível desmarcar pagamentos de meses anteriores.\n\nApenas administradores e presidência podem modificar períodos fechados.',
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Entendi'),
+                  ),
+                ],
+              ),
+            );
+          }
+          return;
+        }
+      }
+    }
 
     setState(() => _isProcessing = true);
 

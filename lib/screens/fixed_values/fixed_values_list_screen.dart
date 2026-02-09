@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../models/fixed_value_model.dart';
+import '../../models/user_model.dart';
 import '../../services/fixed_value_service.dart';
 import '../../providers/auth_provider.dart';
 import '../../widgets/common/empty_state.dart';
@@ -17,6 +18,16 @@ class FixedValuesListScreen extends StatefulWidget {
 
 class _FixedValuesListScreenState extends State<FixedValuesListScreen> {
   bool _showOnlyActive = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Recarrega os dados do usuário para garantir permissões atualizadas
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final authProvider = context.read<AuthProvider>();
+      authProvider.reloadUserData();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -286,6 +297,49 @@ class _FixedValueCard extends StatelessWidget {
   }
 
   void _handleMenuAction(BuildContext context, String action) async {
+    // Verificar se o período está fechado (mês anterior ao atual)
+    final now = DateTime.now();
+    final mesInicioValor = DateTime(
+      value.dataInicio.year,
+      value.dataInicio.month,
+    );
+    final mesAtual = DateTime(now.year, now.month);
+    final isPeriodoFechado = mesInicioValor.isBefore(mesAtual);
+
+    // Verificar se o usuário é admin ou presidência
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final perfil = authProvider.currentUser?.perfil;
+    final canEditClosedPeriod =
+        perfil == UserProfile.admin || perfil == UserProfile.presidencia;
+
+    // Se período fechado e não pode editar, bloquear
+    if (isPeriodoFechado && !canEditClosedPeriod) {
+      if (context.mounted) {
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Row(
+              children: [
+                Icon(Icons.lock, color: Colors.orange),
+                SizedBox(width: 8),
+                Text('Período Fechado'),
+              ],
+            ),
+            content: const Text(
+              'Não é possível editar ou excluir valores fixos de meses anteriores.\n\nApenas administradores e presidência podem modificar períodos fechados.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Entendi'),
+              ),
+            ],
+          ),
+        );
+      }
+      return;
+    }
+
     switch (action) {
       case 'edit':
         Navigator.push(

@@ -36,14 +36,12 @@ class ReportService {
           .map((doc) => FixedValueModel.fromFirestore(doc))
           .toList();
 
-      // Buscar pagamentos do mês
+      // Buscar pagamentos do mês usando mes e ano ao invés de mesReferencia
+      // para evitar necessidade de índice composto
       final paymentsSnapshot = await _firestore
           .collection('fixed_payments')
-          .where(
-            'mesReferencia',
-            isEqualTo:
-                '${year.toString().padLeft(4, '0')}-${month.toString().padLeft(2, '0')}',
-          )
+          .where('mes', isEqualTo: month)
+          .where('ano', isEqualTo: year)
           .get();
 
       final payments = paymentsSnapshot.docs
@@ -72,84 +70,25 @@ class ReportService {
           .map((doc) => ExpenseModel.fromFirestore(doc))
           .toList();
 
-      // Calcular inadimplentes (casas que deveriam pagar mas não pagaram)
-      final defaulters = <HouseDefaulter>[];
+      // NÃO contar como pendente se o mês ainda não venceu
+      final now = DateTime.now();
+      final isCurrentOrPastMonth =
+          mesReferencia.isBefore(DateTime(now.year, now.month + 1)) ||
+          mesReferencia.isAtSameMomentAs(DateTime(now.year, now.month));
 
-      for (var house in houses) {
-        // Verificar se casa deve gerar cobrança
-        if (mesReferencia.isBefore(
-          DateTime(
-            house.dataInicioCobranca.year,
-            house.dataInicioCobranca.month,
-          ),
-        )) {
-          continue;
-        }
-
-        if (house.isento) continue; // Se isenta de tudo, não entra
-
-        double expectedValue = 0;
-        double paidValue = 0;
-        final debts = <String>[];
-
-        for (var value in fixedValues) {
-          final tipoLower = value.tipo.toLowerCase();
-          final isAgua =
-              tipoLower.contains('água') || tipoLower.contains('agua');
-          final isAssoc =
-              tipoLower.contains('associação') ||
-              tipoLower.contains('associacao');
-
-          // Verifica isenção específica
-          if (isAgua && house.isentaAgua) continue;
-          if (isAssoc && house.isentaAssociacao) continue;
-
-          // Verifica se valor está vigente no mês
-          final inicioValido = !mesReferencia.isBefore(
-            DateTime(value.dataInicio.year, value.dataInicio.month),
-          );
-          final fimValido =
-              value.dataFim == null ||
-              !mesReferencia.isAfter(
-                DateTime(value.dataFim!.year, value.dataFim!.month),
-              );
-
-          if (inicioValido && fimValido) {
-            expectedValue += value.valorPorCasa;
-
-            // Verifica se foi pago
-            final payment = payments.firstWhere(
-              (p) => p.houseId == house.id,
-              orElse: () => FixedPaymentModel(
-                id: '',
-                houseId: house.id,
-                mes: month,
-                ano: year,
-                valor: 0,
-                pago: false,
-                dataPagamento: null,
-              ),
-            );
-
-            if (payment.pago) {
-              paidValue += value.valorPorCasa;
-            } else {
-              debts.add(value.tipo);
-            }
-          }
-        }
-
-        if (expectedValue > paidValue && debts.isNotEmpty) {
-          defaulters.add(
-            HouseDefaulter(
-              house: house,
-              expectedValue: expectedValue,
-              paidValue: paidValue,
-              debtValue: expectedValue - paidValue,
-              pendingTypes: debts,
-            ),
-          );
-        }
+      if (!isCurrentOrPastMonth) {
+        // Mês futuro - não há pendentes
+        return MonthlyReport(
+          month: month,
+          year: year,
+          totalExpected: 0,
+          totalPaid: 0,
+          totalEntries: 0,
+          totalExpenses: 0,
+          defaulters: [],
+          paymentsCount: 0,
+          pendingCount: 0,
+        );
       }
 
       // Calcular totais
@@ -192,23 +131,84 @@ class ReportService {
         return sum + houseExpected;
       });
 
-      final totalPaid = payments
-          .where((p) => p.pago)
-          .fold<double>(0, (sum, p) => sum + p.valor);
-
+      // Total pago virá apenas das entradas lançadas manualmente
+      // NÃO contabiliza mais os toggles de "pago" nas cobranças
       final totalEntries = entries.fold<double>(0, (sum, e) => sum + e.valor);
       final totalExpenses = expenses.fold<double>(0, (sum, e) => sum + e.valor);
+
+      // Defaulters: todas as casas que deveriam pagar (já que não temos registro individual de pagamento)
+      final defaulters = <HouseDefaulter>[];
+
+      // Como não temos mais registro individual de pagamentos por casa,
+      // a lista de pendentes fica vazia ou pode mostrar todas as casas com valor esperado
+      // Mantendo vazia por enquanto pois o controle é feito pelas entradas genéricas
+
+      // Calcular contadores baseado em toggles (APENAS CONTROLE VISUAL)
+      final paymentsMap = {for (var p in payments) p.houseId: p};
+      int casasMarcadas = 0; // Casas marcadas como "pagas" (controle visual)
+      int casasNaoMarcadas = 0; // Casas não marcadas
+
+      for (var house in houses) {
+        // Pula se não deve ter cobrança
+        if (mesReferencia.isBefore(
+          DateTime(
+            house.dataInicioCobranca.year,
+            house.dataInicioCobranca.month,
+          ),
+        )) {
+          continue;
+        }
+        if (house.isento) continue;
+
+        // Verifica se tem algum valor válido para esta casa
+        bool temValorValido = false;
+        for (var value in fixedValues) {
+          final tipoLower = value.tipo.toLowerCase();
+          final isAgua =
+              tipoLower.contains('água') || tipoLower.contains('agua');
+          final isAssoc =
+              tipoLower.contains('associação') ||
+              tipoLower.contains('associacao');
+
+          if (isAgua && house.isentaAgua) continue;
+          if (isAssoc && house.isentaAssociacao) continue;
+
+          final inicioValido = !mesReferencia.isBefore(
+            DateTime(value.dataInicio.year, value.dataInicio.month),
+          );
+          final fimValido =
+              value.dataFim == null ||
+              !mesReferencia.isAfter(
+                DateTime(value.dataFim!.year, value.dataFim!.month),
+              );
+
+          if (inicioValido && fimValido) {
+            temValorValido = true;
+            break;
+          }
+        }
+
+        // Se tem valor válido, conta como casa que deveria pagar
+        if (temValorValido) {
+          final payment = paymentsMap[house.id];
+          if (payment?.pago == true) {
+            casasMarcadas++;
+          } else {
+            casasNaoMarcadas++;
+          }
+        }
+      }
 
       return MonthlyReport(
         month: month,
         year: year,
         totalExpected: totalExpected,
-        totalPaid: totalPaid,
+        totalPaid: totalEntries, // Agora vem das entradas, não dos toggles
         totalEntries: totalEntries,
         totalExpenses: totalExpenses,
         defaulters: defaulters,
-        paymentsCount: payments.where((p) => p.pago).length,
-        pendingCount: payments.where((p) => !p.pago).length,
+        paymentsCount: casasMarcadas, // Apenas controle visual
+        pendingCount: casasNaoMarcadas, // Apenas controle visual
       );
     } catch (e) {
       rethrow;
@@ -295,8 +295,6 @@ class ReportService {
   // Relatório de saldo em conta (consolidado de todos os meses até hoje)
   Future<AccountBalanceReport> getAccountBalanceReport() async {
     try {
-      final now = DateTime.now();
-
       // Buscar todos os pagamentos fixos pagos
       final paymentsSnapshot = await _firestore
           .collection('fixed_payments')
@@ -417,7 +415,7 @@ class MonthlyReport {
     required this.pendingCount,
   });
 
-  double get balance => totalPaid + totalEntries - totalExpenses;
+  double get balance => totalEntries - totalExpenses;
   double get defaultAmount => totalExpected - totalPaid;
 }
 
@@ -454,7 +452,7 @@ class AnnualReport {
     required this.totalExpenses,
   });
 
-  double get balance => totalPaid + totalEntries - totalExpenses;
+  double get balance => totalEntries - totalExpenses;
 }
 
 class ResidentsReport {

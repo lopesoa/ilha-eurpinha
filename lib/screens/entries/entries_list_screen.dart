@@ -8,8 +8,51 @@ import '../../widgets/common/empty_state.dart';
 import '../../widgets/common/error_display.dart';
 import 'entry_form_screen.dart';
 
-class EntriesListScreen extends StatelessWidget {
+class EntriesListScreen extends StatefulWidget {
   const EntriesListScreen({super.key});
+
+  @override
+  State<EntriesListScreen> createState() => _EntriesListScreenState();
+}
+
+class _EntriesListScreenState extends State<EntriesListScreen> {
+  DateTime _startDate = DateTime(DateTime.now().year, DateTime.now().month, 1);
+  DateTime _endDate = DateTime(
+    DateTime.now().year,
+    DateTime.now().month + 1,
+    0,
+  );
+  EntryType? _selectedTipo;
+  String _searchQuery = '';
+
+  @override
+  void initState() {
+    super.initState();
+    // Recarrega os dados do usuário para garantir permissões atualizadas
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final authProvider = context.read<AuthProvider>();
+      authProvider.reloadUserData();
+    });
+  }
+
+  List<EntryModel> _applyFilters(List<EntryModel> entries) {
+    return entries.where((entry) {
+      // Filtro de data
+      final isInDateRange =
+          entry.data.isAfter(_startDate.subtract(const Duration(days: 1))) &&
+          entry.data.isBefore(_endDate.add(const Duration(days: 1)));
+
+      // Filtro de tipo
+      final matchesTipo = _selectedTipo == null || entry.tipo == _selectedTipo;
+
+      // Filtro de descrição
+      final matchesSearch =
+          _searchQuery.isEmpty ||
+          entry.descricao.toLowerCase().contains(_searchQuery.toLowerCase());
+
+      return isInDateRange && matchesTipo && matchesSearch;
+    }).toList();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -17,81 +60,150 @@ class EntriesListScreen extends StatelessWidget {
     final canManage = authProvider.currentUser?.canManageFinances ?? false;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Entradas')),
-      body: StreamBuilder<List<EntryModel>>(
-        stream: EntryService().getEntriesStream(),
-        builder: (context, snapshot) {
-          if (snapshot.hasError) {
-            return ErrorDisplay(message: 'Erro ao carregar entradas');
-          }
+      appBar: AppBar(
+        title: const Text('Entradas'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.filter_list),
+            onPressed: () => _showFilterDialog(),
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          // Filtros ativos
+          Container(
+            padding: const EdgeInsets.all(8),
+            color: Theme.of(context).colorScheme.surfaceContainerHighest,
+            child: Column(
+              children: [
+                // Barra de busca
+                TextField(
+                  decoration: InputDecoration(
+                    hintText: 'Buscar por descrição...',
+                    prefixIcon: const Icon(Icons.search),
+                    suffixIcon: _searchQuery.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.clear),
+                            onPressed: () => setState(() => _searchQuery = ''),
+                          )
+                        : null,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    filled: true,
+                    fillColor: Colors.white,
+                    contentPadding: const EdgeInsets.symmetric(vertical: 8),
+                  ),
+                  onChanged: (value) => setState(() => _searchQuery = value),
+                ),
+                const SizedBox(height: 8),
+                // Chips de filtros ativos
+                Wrap(
+                  spacing: 8,
+                  children: [
+                    FilterChip(
+                      label: Text(
+                        '${DateFormat('dd/MM/yy').format(_startDate)} - ${DateFormat('dd/MM/yy').format(_endDate)}',
+                      ),
+                      onSelected: (_) => _showFilterDialog(),
+                      avatar: const Icon(Icons.calendar_today, size: 16),
+                    ),
+                    if (_selectedTipo != null)
+                      FilterChip(
+                        label: Text(_getTipoLabel(_selectedTipo!)),
+                        onDeleted: () => setState(() => _selectedTipo = null),
+                        onSelected: (_) => _showFilterDialog(),
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          // Lista de entradas
+          Expanded(
+            child: StreamBuilder<List<EntryModel>>(
+              stream: EntryService().getEntriesStream(),
+              builder: (context, snapshot) {
+                if (snapshot.hasError) {
+                  return ErrorDisplay(message: 'Erro ao carregar entradas');
+                }
 
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
 
-          final entries = snapshot.data ?? [];
+                final allEntries = snapshot.data ?? [];
+                final entries = _applyFilters(allEntries);
 
-          if (entries.isEmpty) {
-            return const EmptyState(
-              icon: Icons.trending_up,
-              message: 'Nenhuma entrada registrada',
-            );
-          }
+                if (entries.isEmpty) {
+                  return const EmptyState(
+                    icon: Icons.trending_up,
+                    message: 'Nenhuma entrada encontrada',
+                  );
+                }
 
-          // Agrupar por mês/ano
-          final groupedEntries = <String, List<EntryModel>>{};
-          for (var entry in entries) {
-            final key = DateFormat('MMMM yyyy', 'pt_BR').format(entry.data);
-            groupedEntries.putIfAbsent(key, () => []).add(entry);
-          }
+                // Agrupar por mês/ano
+                final groupedEntries = <String, List<EntryModel>>{};
+                for (var entry in entries) {
+                  final key = DateFormat(
+                    'MMMM yyyy',
+                    'pt_BR',
+                  ).format(entry.data);
+                  groupedEntries.putIfAbsent(key, () => []).add(entry);
+                }
 
-          return ListView.builder(
-            padding: const EdgeInsets.all(16),
-            itemCount: groupedEntries.length,
-            itemBuilder: (context, index) {
-              final key = groupedEntries.keys.elementAt(index);
-              final monthEntries = groupedEntries[key]!;
-              final total = monthEntries.fold(
-                0.0,
-                (sum, entry) => sum + entry.valor,
-              );
+                return ListView.builder(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: groupedEntries.length,
+                  itemBuilder: (context, index) {
+                    final key = groupedEntries.keys.elementAt(index);
+                    final monthEntries = groupedEntries[key]!;
+                    final total = monthEntries.fold(
+                      0.0,
+                      (sum, entry) => sum + entry.valor,
+                    );
 
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          key.toUpperCase(),
-                          style: Theme.of(context).textTheme.titleMedium
-                              ?.copyWith(fontWeight: FontWeight.bold),
-                        ),
-                        Text(
-                          NumberFormat.currency(
-                            locale: 'pt_BR',
-                            symbol: 'R\$',
-                          ).format(total),
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: Colors.green,
-                            fontSize: 16,
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                key.toUpperCase(),
+                                style: Theme.of(context).textTheme.titleMedium
+                                    ?.copyWith(fontWeight: FontWeight.bold),
+                              ),
+                              Text(
+                                NumberFormat.currency(
+                                  locale: 'pt_BR',
+                                  symbol: 'R\$',
+                                ).format(total),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.green,
+                                  fontSize: 16,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
+                        ...monthEntries.map(
+                          (entry) =>
+                              _EntryCard(entry: entry, canManage: canManage),
+                        ),
+                        const SizedBox(height: 16),
                       ],
-                    ),
-                  ),
-                  ...monthEntries.map(
-                    (entry) => _EntryCard(entry: entry, canManage: canManage),
-                  ),
-                  const SizedBox(height: 16),
-                ],
-              );
-            },
-          );
-        },
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+        ],
       ),
       floatingActionButton: canManage
           ? FloatingActionButton.extended(
@@ -108,6 +220,216 @@ class EntriesListScreen extends StatelessWidget {
             )
           : null,
     );
+  }
+
+  void _showFilterDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            title: const Text('Filtros'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Filtro de data
+                  const Text(
+                    'Período',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          icon: const Icon(Icons.calendar_today, size: 16),
+                          label: Text(
+                            DateFormat('dd/MM/yy').format(_startDate),
+                          ),
+                          onPressed: () async {
+                            final date = await showDatePicker(
+                              context: context,
+                              initialDate: _startDate,
+                              firstDate: DateTime(2020),
+                              lastDate: DateTime.now().add(
+                                const Duration(days: 365),
+                              ),
+                            );
+                            if (date != null) {
+                              setDialogState(() => _startDate = date);
+                            }
+                          },
+                        ),
+                      ),
+                      const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 8),
+                        child: Text('até'),
+                      ),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          icon: const Icon(Icons.calendar_today, size: 16),
+                          label: Text(DateFormat('dd/MM/yy').format(_endDate)),
+                          onPressed: () async {
+                            final date = await showDatePicker(
+                              context: context,
+                              initialDate: _endDate,
+                              firstDate: DateTime(2020),
+                              lastDate: DateTime.now().add(
+                                const Duration(days: 365),
+                              ),
+                            );
+                            if (date != null) {
+                              setDialogState(() => _endDate = date);
+                            }
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  // Filtro de tipo
+                  const Text(
+                    'Tipo de Entrada',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<EntryType?>(
+                    value: _selectedTipo,
+                    decoration: const InputDecoration(
+                      border: OutlineInputBorder(),
+                      contentPadding: EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                    ),
+                    items: [
+                      const DropdownMenuItem(value: null, child: Text('Todos')),
+                      ...EntryType.values.map(
+                        (tipo) => DropdownMenuItem(
+                          value: tipo,
+                          child: Text(_getTipoLabel(tipo)),
+                        ),
+                      ),
+                    ],
+                    onChanged: (value) =>
+                        setDialogState(() => _selectedTipo = value),
+                  ),
+                  const SizedBox(height: 16),
+                  // Atalhos de período
+                  const Text(
+                    'Atalhos',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    children: [
+                      ElevatedButton.icon(
+                        icon: const Icon(Icons.today, size: 16),
+                        label: const Text('Mês Atual'),
+                        onPressed: () {
+                          setDialogState(() {
+                            _startDate = DateTime(
+                              DateTime.now().year,
+                              DateTime.now().month,
+                              1,
+                            );
+                            _endDate = DateTime(
+                              DateTime.now().year,
+                              DateTime.now().month + 1,
+                              0,
+                            );
+                          });
+                        },
+                      ),
+                      ElevatedButton.icon(
+                        icon: const Icon(Icons.calendar_month, size: 16),
+                        label: const Text('Último Mês'),
+                        onPressed: () {
+                          setDialogState(() {
+                            final lastMonth = DateTime(
+                              DateTime.now().year,
+                              DateTime.now().month - 1,
+                            );
+                            _startDate = DateTime(
+                              lastMonth.year,
+                              lastMonth.month,
+                              1,
+                            );
+                            _endDate = DateTime(
+                              lastMonth.year,
+                              lastMonth.month + 1,
+                              0,
+                            );
+                          });
+                        },
+                      ),
+                      ElevatedButton.icon(
+                        icon: const Icon(Icons.calendar_view_month, size: 16),
+                        label: const Text('Últimos 3 Meses'),
+                        onPressed: () {
+                          setDialogState(() {
+                            _endDate = DateTime.now();
+                            _startDate = DateTime.now().subtract(
+                              const Duration(days: 90),
+                            );
+                          });
+                        },
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  setState(() {
+                    _startDate = DateTime(
+                      DateTime.now().year,
+                      DateTime.now().month,
+                      1,
+                    );
+                    _endDate = DateTime(
+                      DateTime.now().year,
+                      DateTime.now().month + 1,
+                      0,
+                    );
+                    _selectedTipo = null;
+                  });
+                  Navigator.pop(context);
+                },
+                child: const Text('Limpar'),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  setState(() {}); // Atualiza a lista
+                  Navigator.pop(context);
+                },
+                child: const Text('Aplicar'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  String _getTipoLabel(EntryType tipo) {
+    switch (tipo) {
+      case EntryType.doacao:
+        return 'Doação';
+      case EntryType.contribuicao_extra:
+        return 'Contribuição Extra';
+      case EntryType.evento:
+        return 'Evento';
+      case EntryType.multa:
+        return 'Multa';
+      case EntryType.outro:
+        return 'Outro';
+    }
   }
 }
 

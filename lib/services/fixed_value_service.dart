@@ -185,7 +185,6 @@ class FixedValueService {
   // Buscar valores fixos ativos como Future
   Future<List<FixedValueModel>> getActiveFixedValues() async {
     try {
-      final now = DateTime.now();
       final snapshot = await _firestore
           .collection(_collection)
           .where('ativo', isEqualTo: true)

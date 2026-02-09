@@ -14,7 +14,6 @@ class ReportsScreen extends StatefulWidget {
 class _ReportsScreenState extends State<ReportsScreen> {
   int _selectedMonth = DateTime.now().month;
   int _selectedYear = DateTime.now().year;
-  bool _isLoading = false;
 
   @override
   Widget build(BuildContext context) {
@@ -161,25 +160,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 ),
                 const Divider(),
                 _buildReportRow(
-                  'Cobranças Esperadas',
-                  report.totalExpected,
-                  Colors.orange,
-                ),
-                _buildReportRow(
-                  'Cobranças Pagas',
+                  'Entradas/Pagamentos',
                   report.totalPaid,
                   Colors.green,
-                ),
-                _buildReportRow(
-                  'Inadimplência',
-                  report.defaultAmount,
-                  Colors.red,
-                ),
-                const Divider(),
-                _buildReportRow(
-                  'Entradas Extras',
-                  report.totalEntries,
-                  Colors.blue,
                 ),
                 _buildReportRow('Despesas', report.totalExpenses, Colors.red),
                 const Divider(),
@@ -203,15 +186,24 @@ class _ReportsScreenState extends State<ReportsScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Estatísticas',
+                  'Estatísticas (Controle)',
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
                 const Divider(),
+                Text(
+                  'Apenas controle visual - valores reais vêm das Entradas',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey[600],
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+                const SizedBox(height: 8),
                 Row(
                   children: [
                     Expanded(
                       child: _buildStatCard(
-                        'Pagas',
+                        'Marcadas',
                         report.paymentsCount.toString(),
                         Colors.green,
                       ),
@@ -219,7 +211,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                     const SizedBox(width: 16),
                     Expanded(
                       child: _buildStatCard(
-                        'Pendentes',
+                        'Não Marcadas',
                         report.pendingCount.toString(),
                         Colors.orange,
                       ),
@@ -232,7 +224,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
         ),
         const SizedBox(height: 16),
 
-        // Casas Inadimplentes
+        // Casas Pendentes
         if (report.defaulters.isNotEmpty) ...[
           Card(
             child: Padding(
@@ -241,15 +233,15 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Casas Inadimplentes (${report.defaulters.length})',
+                    'Casas Pendentes (${report.defaulters.length})',
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
                   const Divider(),
                   ...report.defaulters.map(
                     (defaulter) => ListTile(
                       leading: const CircleAvatar(
-                        backgroundColor: Colors.red,
-                        child: Icon(Icons.warning, color: Colors.white),
+                        backgroundColor: Colors.orange,
+                        child: Icon(Icons.pending_actions, color: Colors.white),
                       ),
                       title: Text('Casa ${defaulter.house.identificador}'),
                       subtitle: Text(
@@ -352,15 +344,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 ),
                 const Divider(),
                 _buildReportRow(
-                  'Total Esperado',
-                  report.totalExpected,
-                  Colors.orange,
-                ),
-                _buildReportRow('Total Pago', report.totalPaid, Colors.green),
-                _buildReportRow(
                   'Total Entradas',
                   report.totalEntries,
-                  Colors.blue,
+                  Colors.green,
                 ),
                 _buildReportRow(
                   'Total Despesas',
@@ -394,31 +380,42 @@ class _ReportsScreenState extends State<ReportsScreen> {
                   final monthReport = entry.value;
                   return ListTile(
                     title: Text(monthNames[entry.key]),
-                    subtitle: Text(
-                      'Saldo: ${NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$').format(monthReport.balance)}',
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Entradas: ${NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$').format(monthReport.totalEntries)}',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Colors.green,
+                          ),
+                        ),
+                        Text(
+                          'Despesas: ${NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$').format(monthReport.totalExpenses)}',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Colors.red,
+                          ),
+                        ),
+                      ],
                     ),
                     trailing: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
+                        Text('Saldo:', style: const TextStyle(fontSize: 12)),
                         Text(
                           NumberFormat.currency(
                             locale: 'pt_BR',
                             symbol: 'R\$',
-                          ).format(monthReport.totalPaid),
-                          style: const TextStyle(
+                          ).format(monthReport.balance),
+                          style: TextStyle(
                             fontWeight: FontWeight.bold,
-                            color: Colors.green,
+                            color: monthReport.balance >= 0
+                                ? Colors.green
+                                : Colors.red,
                           ),
                         ),
-                        if (monthReport.defaulters.isNotEmpty)
-                          Text(
-                            '${monthReport.defaulters.length} inadimplente${monthReport.defaulters.length > 1 ? 's' : ''}',
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: Colors.red,
-                            ),
-                          ),
                       ],
                     ),
                   );

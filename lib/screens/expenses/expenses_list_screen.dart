@@ -8,8 +8,52 @@ import '../../widgets/common/empty_state.dart';
 import '../../widgets/common/error_display.dart';
 import 'expense_form_screen.dart';
 
-class ExpensesListScreen extends StatelessWidget {
+class ExpensesListScreen extends StatefulWidget {
   const ExpensesListScreen({super.key});
+
+  @override
+  State<ExpensesListScreen> createState() => _ExpensesListScreenState();
+}
+
+class _ExpensesListScreenState extends State<ExpensesListScreen> {
+  DateTime _startDate = DateTime(DateTime.now().year, DateTime.now().month, 1);
+  DateTime _endDate = DateTime(
+    DateTime.now().year,
+    DateTime.now().month + 1,
+    0,
+  );
+  ExpenseCategory? _selectedCategoria;
+  String _searchQuery = '';
+
+  @override
+  void initState() {
+    super.initState();
+    // Recarrega os dados do usuário para garantir permissões atualizadas
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final authProvider = context.read<AuthProvider>();
+      authProvider.reloadUserData();
+    });
+  }
+
+  List<ExpenseModel> _applyFilters(List<ExpenseModel> expenses) {
+    return expenses.where((expense) {
+      // Filtro de data
+      final isInDateRange =
+          expense.data.isAfter(_startDate.subtract(const Duration(days: 1))) &&
+          expense.data.isBefore(_endDate.add(const Duration(days: 1)));
+
+      // Filtro de categoria
+      final matchesCategoria =
+          _selectedCategoria == null || expense.categoria == _selectedCategoria;
+
+      // Filtro de descrição
+      final matchesSearch =
+          _searchQuery.isEmpty ||
+          expense.descricao.toLowerCase().contains(_searchQuery.toLowerCase());
+
+      return isInDateRange && matchesCategoria && matchesSearch;
+    }).toList();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -17,82 +61,153 @@ class ExpensesListScreen extends StatelessWidget {
     final canManage = authProvider.currentUser?.canManageFinances ?? false;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Despesas')),
-      body: StreamBuilder<List<ExpenseModel>>(
-        stream: ExpenseService().getExpensesStream(),
-        builder: (context, snapshot) {
-          if (snapshot.hasError) {
-            return ErrorDisplay(message: 'Erro ao carregar despesas');
-          }
+      appBar: AppBar(
+        title: const Text('Despesas'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.filter_list),
+            onPressed: () => _showFilterDialog(),
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          // Filtros ativos
+          Container(
+            padding: const EdgeInsets.all(8),
+            color: Theme.of(context).colorScheme.surfaceContainerHighest,
+            child: Column(
+              children: [
+                // Barra de busca
+                TextField(
+                  decoration: InputDecoration(
+                    hintText: 'Buscar por descrição...',
+                    prefixIcon: const Icon(Icons.search),
+                    suffixIcon: _searchQuery.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.clear),
+                            onPressed: () => setState(() => _searchQuery = ''),
+                          )
+                        : null,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    filled: true,
+                    fillColor: Colors.white,
+                    contentPadding: const EdgeInsets.symmetric(vertical: 8),
+                  ),
+                  onChanged: (value) => setState(() => _searchQuery = value),
+                ),
+                const SizedBox(height: 8),
+                // Chips de filtros ativos
+                Wrap(
+                  spacing: 8,
+                  children: [
+                    FilterChip(
+                      label: Text(
+                        '${DateFormat('dd/MM/yy').format(_startDate)} - ${DateFormat('dd/MM/yy').format(_endDate)}',
+                      ),
+                      onSelected: (_) => _showFilterDialog(),
+                      avatar: const Icon(Icons.calendar_today, size: 16),
+                    ),
+                    if (_selectedCategoria != null)
+                      FilterChip(
+                        label: Text(_getCategoriaLabel(_selectedCategoria!)),
+                        onDeleted: () =>
+                            setState(() => _selectedCategoria = null),
+                        onSelected: (_) => _showFilterDialog(),
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          // Lista de despesas
+          Expanded(
+            child: StreamBuilder<List<ExpenseModel>>(
+              stream: ExpenseService().getExpensesStream(),
+              builder: (context, snapshot) {
+                if (snapshot.hasError) {
+                  return ErrorDisplay(message: 'Erro ao carregar despesas');
+                }
 
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
 
-          final expenses = snapshot.data ?? [];
+                final allExpenses = snapshot.data ?? [];
+                final expenses = _applyFilters(allExpenses);
 
-          if (expenses.isEmpty) {
-            return const EmptyState(
-              icon: Icons.trending_down,
-              message: 'Nenhuma despesa registrada',
-            );
-          }
+                if (expenses.isEmpty) {
+                  return const EmptyState(
+                    icon: Icons.trending_down,
+                    message: 'Nenhuma despesa encontrada',
+                  );
+                }
 
-          // Agrupar por mês/ano
-          final groupedExpenses = <String, List<ExpenseModel>>{};
-          for (var expense in expenses) {
-            final key = DateFormat('MMMM yyyy', 'pt_BR').format(expense.data);
-            groupedExpenses.putIfAbsent(key, () => []).add(expense);
-          }
+                // Agrupar por mês/ano
+                final groupedExpenses = <String, List<ExpenseModel>>{};
+                for (var expense in expenses) {
+                  final key = DateFormat(
+                    'MMMM yyyy',
+                    'pt_BR',
+                  ).format(expense.data);
+                  groupedExpenses.putIfAbsent(key, () => []).add(expense);
+                }
 
-          return ListView.builder(
-            padding: const EdgeInsets.all(16),
-            itemCount: groupedExpenses.length,
-            itemBuilder: (context, index) {
-              final key = groupedExpenses.keys.elementAt(index);
-              final monthExpenses = groupedExpenses[key]!;
-              final total = monthExpenses.fold(
-                0.0,
-                (sum, expense) => sum + expense.valor,
-              );
+                return ListView.builder(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: groupedExpenses.length,
+                  itemBuilder: (context, index) {
+                    final key = groupedExpenses.keys.elementAt(index);
+                    final monthExpenses = groupedExpenses[key]!;
+                    final total = monthExpenses.fold(
+                      0.0,
+                      (sum, expense) => sum + expense.valor,
+                    );
 
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          key.toUpperCase(),
-                          style: Theme.of(context).textTheme.titleMedium
-                              ?.copyWith(fontWeight: FontWeight.bold),
-                        ),
-                        Text(
-                          NumberFormat.currency(
-                            locale: 'pt_BR',
-                            symbol: 'R\$',
-                          ).format(total),
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: Colors.red,
-                            fontSize: 16,
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                key.toUpperCase(),
+                                style: Theme.of(context).textTheme.titleMedium
+                                    ?.copyWith(fontWeight: FontWeight.bold),
+                              ),
+                              Text(
+                                NumberFormat.currency(
+                                  locale: 'pt_BR',
+                                  symbol: 'R\$',
+                                ).format(total),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.red,
+                                  fontSize: 16,
+                                ),
+                              ),
+                            ],
                           ),
                         ),
+                        ...monthExpenses.map(
+                          (expense) => _ExpenseCard(
+                            expense: expense,
+                            canManage: canManage,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
                       ],
-                    ),
-                  ),
-                  ...monthExpenses.map(
-                    (expense) =>
-                        _ExpenseCard(expense: expense, canManage: canManage),
-                  ),
-                  const SizedBox(height: 16),
-                ],
-              );
-            },
-          );
-        },
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+        ],
       ),
       floatingActionButton: canManage
           ? FloatingActionButton.extended(
@@ -109,6 +224,224 @@ class ExpensesListScreen extends StatelessWidget {
             )
           : null,
     );
+  }
+
+  void _showFilterDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            title: const Text('Filtros'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Filtro de data
+                  const Text(
+                    'Período',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          icon: const Icon(Icons.calendar_today, size: 16),
+                          label: Text(
+                            DateFormat('dd/MM/yy').format(_startDate),
+                          ),
+                          onPressed: () async {
+                            final date = await showDatePicker(
+                              context: context,
+                              initialDate: _startDate,
+                              firstDate: DateTime(2020),
+                              lastDate: DateTime.now().add(
+                                const Duration(days: 365),
+                              ),
+                            );
+                            if (date != null) {
+                              setDialogState(() => _startDate = date);
+                            }
+                          },
+                        ),
+                      ),
+                      const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 8),
+                        child: Text('até'),
+                      ),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          icon: const Icon(Icons.calendar_today, size: 16),
+                          label: Text(DateFormat('dd/MM/yy').format(_endDate)),
+                          onPressed: () async {
+                            final date = await showDatePicker(
+                              context: context,
+                              initialDate: _endDate,
+                              firstDate: DateTime(2020),
+                              lastDate: DateTime.now().add(
+                                const Duration(days: 365),
+                              ),
+                            );
+                            if (date != null) {
+                              setDialogState(() => _endDate = date);
+                            }
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  // Filtro de categoria
+                  const Text(
+                    'Categoria',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<ExpenseCategory?>(
+                    value: _selectedCategoria,
+                    decoration: const InputDecoration(
+                      border: OutlineInputBorder(),
+                      contentPadding: EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                    ),
+                    items: [
+                      const DropdownMenuItem(value: null, child: Text('Todas')),
+                      ...ExpenseCategory.values.map(
+                        (categoria) => DropdownMenuItem(
+                          value: categoria,
+                          child: Text(_getCategoriaLabel(categoria)),
+                        ),
+                      ),
+                    ],
+                    onChanged: (value) =>
+                        setDialogState(() => _selectedCategoria = value),
+                  ),
+                  const SizedBox(height: 16),
+                  // Atalhos de período
+                  const Text(
+                    'Atalhos',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    children: [
+                      ElevatedButton.icon(
+                        icon: const Icon(Icons.today, size: 16),
+                        label: const Text('Mês Atual'),
+                        onPressed: () {
+                          setDialogState(() {
+                            _startDate = DateTime(
+                              DateTime.now().year,
+                              DateTime.now().month,
+                              1,
+                            );
+                            _endDate = DateTime(
+                              DateTime.now().year,
+                              DateTime.now().month + 1,
+                              0,
+                            );
+                          });
+                        },
+                      ),
+                      ElevatedButton.icon(
+                        icon: const Icon(Icons.calendar_month, size: 16),
+                        label: const Text('Último Mês'),
+                        onPressed: () {
+                          setDialogState(() {
+                            final lastMonth = DateTime(
+                              DateTime.now().year,
+                              DateTime.now().month - 1,
+                            );
+                            _startDate = DateTime(
+                              lastMonth.year,
+                              lastMonth.month,
+                              1,
+                            );
+                            _endDate = DateTime(
+                              lastMonth.year,
+                              lastMonth.month + 1,
+                              0,
+                            );
+                          });
+                        },
+                      ),
+                      ElevatedButton.icon(
+                        icon: const Icon(Icons.calendar_view_month, size: 16),
+                        label: const Text('Últimos 3 Meses'),
+                        onPressed: () {
+                          setDialogState(() {
+                            _endDate = DateTime.now();
+                            _startDate = DateTime.now().subtract(
+                              const Duration(days: 90),
+                            );
+                          });
+                        },
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  setState(() {
+                    _startDate = DateTime(
+                      DateTime.now().year,
+                      DateTime.now().month,
+                      1,
+                    );
+                    _endDate = DateTime(
+                      DateTime.now().year,
+                      DateTime.now().month + 1,
+                      0,
+                    );
+                    _selectedCategoria = null;
+                  });
+                  Navigator.pop(context);
+                },
+                child: const Text('Limpar'),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  setState(() {}); // Atualiza a lista
+                  Navigator.pop(context);
+                },
+                child: const Text('Aplicar'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  String _getCategoriaLabel(ExpenseCategory categoria) {
+    switch (categoria) {
+      case ExpenseCategory.manutencao:
+        return 'Manutenção';
+      case ExpenseCategory.limpeza:
+        return 'Limpeza';
+      case ExpenseCategory.seguranca:
+        return 'Segurança';
+      case ExpenseCategory.energia:
+        return 'Energia';
+      case ExpenseCategory.agua:
+        return 'Água';
+      case ExpenseCategory.associacao:
+        return 'Associação';
+      case ExpenseCategory.evento:
+        return 'Evento';
+      case ExpenseCategory.administrativa:
+        return 'Administrativa';
+      case ExpenseCategory.outro:
+        return 'Outro';
+    }
   }
 }
 

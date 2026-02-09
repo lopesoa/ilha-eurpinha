@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:intl/intl.dart';
 import '../../models/user_model.dart';
 import '../../services/user_service.dart';
-import '../../services/auth_service.dart';
 import '../../providers/auth_provider.dart';
 import '../../widgets/common/empty_state.dart';
 import '../../widgets/common/error_display.dart';
@@ -98,8 +96,6 @@ class _UserCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final dateFormat = DateFormat('dd/MM/yyyy');
-
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       child: ListTile(

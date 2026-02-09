@@ -74,6 +74,20 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> reloadUserData() async {
+    if (_authService.currentUser != null) {
+      try {
+        _currentUser = await _authService.getUserData(
+          _authService.currentUser!.uid,
+        );
+        notifyListeners();
+      } catch (e) {
+        _errorMessage = 'Erro ao recarregar dados do usuário';
+        notifyListeners();
+      }
+    }
+  }
+
   String _getErrorMessage(String code) {
     switch (code) {
       case 'user-not-found':

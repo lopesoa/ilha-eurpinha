@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../models/house_model.dart';
+import '../../models/resident_model.dart';
 import '../../services/house_service.dart';
+import '../../services/resident_service.dart';
 import '../../services/fixed_value_service.dart';
 import '../../utils/validators.dart';
 
@@ -20,6 +22,7 @@ class _HouseFormScreenState extends State<HouseFormScreen> {
   final _dataInicioController = TextEditingController();
 
   HouseStatus _status = HouseStatus.ativa;
+  bool _associado = true; // Nova flag para indicar se é associado
   DateTime _dataInicioCobranca = DateTime(2026, 1, 1);
   bool _isLoading = false;
   List<String> _availableFixedTypes = [];
@@ -34,6 +37,7 @@ class _HouseFormScreenState extends State<HouseFormScreen> {
     if (isEditing) {
       _identificadorController.text = widget.house!.identificador;
       _status = widget.house!.status;
+      _associado = widget.house!.associado;
       _dataInicioCobranca = widget.house!.dataInicioCobranca;
       // Inicializa isenções com valores da casa
       _isencoes = {
@@ -101,12 +105,16 @@ class _HouseFormScreenState extends State<HouseFormScreen> {
           )
           .any((e) => e.value);
 
+      // Se não é associado, força isentaAssociacao = true
+      final isentaAssociacaoFinal = !_associado ? true : isentaAssociacao;
+
       final house = HouseModel(
         id: widget.house?.id ?? '',
         identificador: _identificadorController.text.trim(),
         status: _status,
+        associado: _associado,
         isentaAgua: isentaAgua,
-        isentaAssociacao: isentaAssociacao,
+        isentaAssociacao: isentaAssociacaoFinal,
         dataInicioCobranca: _dataInicioCobranca,
         createdAt: widget.house?.createdAt ?? DateTime.now(),
         mapX: widget.house?.mapX,
@@ -173,10 +181,20 @@ class _HouseFormScreenState extends State<HouseFormScreen> {
       final label = 'Isenta de $tipo';
       final value = _isencoes[tipoLower] ?? false;
 
+      // Desabilita switch de associação se não for associado
+      final isAssociacaoType = tipoLower.contains('associa');
+      final isDisabled = _isLoading || (isAssociacaoType && !_associado);
+
       return SwitchListTile(
         title: Text(label),
+        subtitle: isAssociacaoType && !_associado
+            ? const Text(
+                'Casa não associada - automaticamente isenta',
+                style: TextStyle(fontSize: 11, color: Colors.grey),
+              )
+            : null,
         value: value,
-        onChanged: _isLoading
+        onChanged: isDisabled
             ? null
             : (v) => setState(() {
                 _isencoes[tipoLower] = v;
@@ -228,6 +246,29 @@ class _HouseFormScreenState extends State<HouseFormScreen> {
                   : (v) => setState(() => _status = v!),
             ),
             const SizedBox(height: 16),
+            SwitchListTile(
+              title: const Text('Associado'),
+              subtitle: const Text(
+                'Casas não associadas ficam isentas de cobranças de associação',
+              ),
+              value: _associado,
+              onChanged: _isLoading
+                  ? null
+                  : (v) {
+                      setState(() {
+                        _associado = v;
+                        // Se marcar como não associado, automaticamente isenta associação
+                        if (!v) {
+                          for (var key in _isencoes.keys) {
+                            if (key.toLowerCase().contains('associa')) {
+                              _isencoes[key] = true;
+                            }
+                          }
+                        }
+                      });
+                    },
+            ),
+            const SizedBox(height: 16),
             TextFormField(
               controller: _dataInicioController,
               decoration: const InputDecoration(
@@ -241,6 +282,21 @@ class _HouseFormScreenState extends State<HouseFormScreen> {
             const SizedBox(height: 16),
             ..._buildExemptionSwitches(),
             const SizedBox(height: 24),
+
+            // Seção de Moradores (somente se estiver editando)
+            if (isEditing) ...[
+              const Divider(height: 32),
+              Text(
+                'Moradores da Casa',
+                style: Theme.of(
+                  context,
+                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              _buildResidentsSection(),
+              const SizedBox(height: 24),
+            ],
+
             FilledButton(
               onPressed: _isLoading ? null : _handleSave,
               child: _isLoading
@@ -253,6 +309,203 @@ class _HouseFormScreenState extends State<HouseFormScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildResidentsSection() {
+    return StreamBuilder<List<ResidentModel>>(
+      stream: ResidentService().getResidentsByHouseStream(widget.house!.id),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(
+            child: Padding(
+              padding: EdgeInsets.all(16),
+              child: CircularProgressIndicator(),
+            ),
+          );
+        }
+
+        if (snapshot.hasError) {
+          return Card(
+            color: Colors.red.shade50,
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text(
+                'Erro ao carregar moradores: ${snapshot.error}',
+                style: const TextStyle(color: Colors.red),
+              ),
+            ),
+          );
+        }
+
+        final residents = snapshot.data ?? [];
+
+        if (residents.isEmpty) {
+          return Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                children: [
+                  Icon(Icons.people_outline, size: 48, color: Colors.grey),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Nenhum morador cadastrado',
+                    style: TextStyle(color: Colors.grey[600]),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+
+        // Separa por tipo
+        final responsaveis = residents
+            .where((r) => r.tipo == ResidentType.responsavel)
+            .toList();
+        final criancas = residents.where((r) => r.isCrianca).toList();
+
+        return Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Resumo
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    _buildResidentStat(
+                      'Total',
+                      residents.length.toString(),
+                      Icons.people,
+                      Colors.blue,
+                    ),
+                    _buildResidentStat(
+                      'Responsáveis',
+                      responsaveis.length.toString(),
+                      Icons.shield,
+                      Colors.green,
+                    ),
+                    _buildResidentStat(
+                      'Crianças',
+                      criancas.length.toString(),
+                      Icons.child_care,
+                      Colors.orange,
+                    ),
+                  ],
+                ),
+                const Divider(height: 24),
+
+                // Lista de moradores
+                ...residents.map((resident) => _buildResidentTile(resident)),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildResidentStat(
+    String label,
+    String value,
+    IconData icon,
+    Color color,
+  ) {
+    return Column(
+      children: [
+        Icon(icon, color: color, size: 28),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+            color: color,
+          ),
+        ),
+        Text(label, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+      ],
+    );
+  }
+
+  Widget _buildResidentTile(ResidentModel resident) {
+    final isResponsavel = resident.tipo == ResidentType.responsavel;
+    final isCrianca = resident.isCrianca;
+
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      leading: CircleAvatar(
+        backgroundColor: isResponsavel
+            ? Colors.green.shade100
+            : isCrianca
+            ? Colors.orange.shade100
+            : Colors.blue.shade100,
+        child: Icon(
+          isResponsavel
+              ? Icons.shield
+              : isCrianca
+              ? Icons.child_care
+              : Icons.person,
+          color: isResponsavel
+              ? Colors.green.shade700
+              : isCrianca
+              ? Colors.orange.shade700
+              : Colors.blue.shade700,
+          size: 20,
+        ),
+      ),
+      title: Text(
+        resident.nome,
+        style: TextStyle(
+          fontWeight: isResponsavel ? FontWeight.bold : FontWeight.normal,
+        ),
+      ),
+      subtitle: Row(
+        children: [
+          Text('${resident.idade} anos'),
+          if (isResponsavel) ...[
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.green.shade100,
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text(
+                'RESPONSÁVEL',
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.green.shade700,
+                ),
+              ),
+            ),
+          ],
+          if (isCrianca) ...[
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.orange.shade100,
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text(
+                'CRIANÇA',
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.orange.shade700,
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+      trailing: Text(
+        DateFormat('dd/MM/yyyy').format(resident.dataNascimento),
+        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
       ),
     );
   }
